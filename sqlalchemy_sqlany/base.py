@@ -294,7 +294,7 @@ class SQLAnyExecutionContext(default.DefaultExecutionContext):
     def get_lastrowid(self):
         cursor = self.create_cursor()
         cursor.execute("SELECT @@identity AS lastrowid")
-        lastrowid = cursor.fetchone()[0]
+        lastrowid = cursor.first()[0]
         cursor.close()
         return lastrowid
 
@@ -500,9 +500,13 @@ class SQLAnyDialect(default.DefaultDialect):
         if isinstance(table_name, str):
             table_name = table_name.encode("ascii")
         # end Py2K
-        result = connection.execute(TABLEID_SQL,
-                                    schema_name=schema,
-                                    table_name=table_name)
+        result = connection.execute(
+            TABLEID_SQL,
+            {
+                'schema_name': schema
+                , 'table_name': table_name
+            }
+        )
         table_id = result.scalar()
         if table_id is None:
             raise exc.NoSuchTableError(table_name)
@@ -527,7 +531,7 @@ class SQLAnyDialect(default.DefaultDialect):
           ORDER BY col.column_id
         """)
 
-        results = connection.execute(COLUMN_SQL, table_id=table_id)
+        results = connection.execute(COLUMN_SQL, {'table_id': table_id})
 
         columns = []
         for (name, type_, nullable, autoincrement, default, precision, scale,
@@ -593,10 +597,10 @@ class SQLAnyDialect(default.DefaultDialect):
           WHERE c.table_id = :table_id
         """)
 
-        results = connection.execute(COLUMN_SQL, table_id=table_id)
+        results = connection.execute(COLUMN_SQL, {'table_id': table_id})
         columns = {}
         for col in results:
-            columns[col["id"]] = col["name"]
+            columns[col.id] = col.name
         column_cache[table_id] = columns
 
         REFCONSTRAINT_SQL = text("""
@@ -607,8 +611,12 @@ class SQLAnyDialect(default.DefaultDialect):
           WHERE fk.foreign_table_id = :table_id
           and i.index_category=2
         """)
-        referential_constraints = connection.execute(REFCONSTRAINT_SQL,
-                                                     table_id=table_id)
+        referential_constraints = connection.execute(
+            REFCONSTRAINT_SQL
+            , {
+                'table_id': table_id
+            }
+        )
 
         REFTABLE_SQL = text("""
           SELECT t.table_name AS name, u.name AS "schema"
@@ -617,23 +625,26 @@ class SQLAnyDialect(default.DefaultDialect):
         """)
 
         for r in referential_constraints:
-            reftable_id = r["reftable_id"]
-            foreign_index_id = r["foreign_index_id"]
+            reftable_id = r.reftable_id
+            foreign_index_id = r.foreign_index_id
 
             if reftable_id not in table_cache:
-                c = connection.execute(REFTABLE_SQL, table_id=reftable_id)
-                reftable = c.fetchone()
+                c = connection.execute(
+                    REFTABLE_SQL
+                    , {'table_id': reftable_id}
+                )
+                reftable = c.first()
                 c.close()
-                table_info = {"name": reftable["name"], "schema": None}
+                table_info = {"name": reftable.name, "schema": None}
                 if (schema is not None or
-                        reftable["schema"] != self.default_schema_name):
-                    table_info["schema"] = reftable["schema"]
+                        reftable.schema != self.default_schema_name):
+                    table_info["schema"] = reftable.schema
 
                 table_cache[reftable_id] = table_info
-                results = connection.execute(COLUMN_SQL, table_id=reftable_id)
+                results = connection.execute(COLUMN_SQL, {'table_id': reftable_id})
                 reftable_columns = {}
                 for col in results:
-                    reftable_columns[col["id"]] = col["name"]
+                    reftable_columns[col.id] = col.name
                 column_cache[reftable_id] = reftable_columns
 
             reftable = table_cache[reftable_id]
@@ -651,20 +662,24 @@ class SQLAnyDialect(default.DefaultDialect):
             and fk.foreign_table_id = :table_id
             and fk.foreign_index_id = :foreign_index_id
             """)
-            ref_cols = connection.execute(REFCOLS_SQL,
-                                          table_id=table_id,
-                                          reftable_id=reftable_id,
-                                          foreign_index_id=foreign_index_id)
+            ref_cols = connection.execute(
+                REFCOLS_SQL
+                , {
+                    'table_id': table_id,
+                    'reftable_id': reftable_id,
+                    'foreign_index_id': foreign_index_id
+                }
+            )
             for rc in ref_cols:
-                constrained_columns.append(columns[rc["fokey"]])
-                referred_columns.append(reftable_columns[rc["refkey"]])
+                constrained_columns.append(columns[rc.fokey])
+                referred_columns.append(reftable_columns[rc.refkey])
 
             fk_info = {
                     "constrained_columns": constrained_columns,
-                    "referred_schema": reftable["schema"],
-                    "referred_table": reftable["name"],
+                    "referred_schema": reftable['schema'],
+                    "referred_table": reftable['name'],
                     "referred_columns": referred_columns,
-                    "name": r["name"]
+                    "name": r.name
                 }
 
             foreign_keys.append(fk_info)
@@ -686,7 +701,7 @@ class SQLAnyDialect(default.DefaultDialect):
           WHERE t.table_id = :table_id and i.index_category = 3
         """)
 
-        results = connection.execute(INDEX_SQL, table_id=table_id)
+        results = connection.execute(INDEX_SQL, {'table_id': table_id})
         indexes = []
         for r in results:
             INDEXCOL_SQL = text("""
@@ -696,11 +711,16 @@ class SQLAnyDialect(default.DefaultDialect):
              WHERE ic.index_id = :index_id and ic.table_id = :table_id
              ORDER BY ic.sequence ASC
             """)
-            idx_cols = connection.execute(INDEXCOL_SQL, index_id=r["index_id"],
-                                          table_id=table_id)
-            column_names = [ic["col"] for ic in idx_cols]
-            index_info = {"name": r["name"],
-                          "unique": bool(r["unique"]),
+            idx_cols = connection.execute(
+                INDEXCOL_SQL
+                , {
+                    'index_id': r.index_id
+                    , 'table_id': table_id
+                }
+            )
+            column_names = [ic.col for ic in idx_cols]
+            index_info = {"name": r.name,
+                          "unique": bool(r.unique),
                           "column_names": column_names}
             indexes.append(index_info)
 
@@ -719,8 +739,8 @@ class SQLAnyDialect(default.DefaultDialect):
           WHERE t.table_id = :table_id and i.index_category = 1
         """)
 
-        results = connection.execute(PK_SQL, table_id=table_id)
-        pks = results.fetchone()
+        results = connection.execute(PK_SQL, {'table_id': table_id})
+        pks = results.first()
         results.close()
 
         if not pks:
@@ -733,11 +753,18 @@ class SQLAnyDialect(default.DefaultDialect):
              join sys.systabcol tc on (ic.table_id=tc.table_id and ic.column_id=tc.column_id)
              WHERE ic.index_id = :index_id and ic.table_id = :table_id
             """)
-        pk_cols = connection.execute(PKCOL_SQL, index_id=pks["index_id"],
-                                     table_id=table_id )
-        column_names = [pkc["col"] for pkc in pk_cols]
-        return {"constrained_columns": column_names,
-                "name": pks["name"]}
+        pk_cols = connection.execute(
+            PKCOL_SQL
+            , {
+                'index_id': pks.index_id
+                , 'table_id': table_id
+            }
+        )
+        column_names = [pkc.col for pkc in pk_cols]
+        return {
+            "constrained_columns": column_names,
+            "name": pks.name
+        }
 
     @reflection.cache
     def get_unique_constraints(self, connection, table_name, schema=None, **kw):
@@ -752,7 +779,7 @@ class SQLAnyDialect(default.DefaultDialect):
           WHERE t.table_id = :table_id and i.index_category = 3 and i."unique"=2
         """)
 
-        results = connection.execute(INDEX_SQL, table_id=table_id)
+        results = connection.execute(INDEX_SQL, {'table_id': table_id})
         indexes = []
         for r in results:
             INDEXCOL_SQL = text("""
@@ -762,10 +789,15 @@ class SQLAnyDialect(default.DefaultDialect):
              WHERE ic.index_id = :index_id and ic.table_id = :table_id
              ORDER BY ic.sequence ASC
             """)
-            idx_cols = connection.execute(INDEXCOL_SQL, index_id=r["index_id"],
-                                          table_id=table_id)
-            column_names = [ic["col"] for ic in idx_cols]
-            index_info = {"name": r["name"],
+            idx_cols = connection.execute(
+                INDEXCOL_SQL
+                , {
+                    'index_id': r.index_id
+                    , 'table_id': table_id
+                }
+            )
+            column_names = [ic.col for ic in idx_cols]
+            index_info = {"name": r.name,
                           "column_names": column_names}
             indexes.append(index_info)
 
@@ -795,9 +827,10 @@ class SQLAnyDialect(default.DefaultDialect):
         if isinstance(schema, str):
             schema = schema.encode("ascii")
         # end Py2K
-        tables = connection.execute(TABLE_SQL, schema_name=schema)
+        tables = connection.execute(TABLE_SQL, {"schema_name": schema})
+        # tables = result.fetchall()
 
-        return [t["name"] for t in tables]
+        return [t.name for t in tables]
 
     @reflection.cache
     def get_view_definition(self, connection, view_name, schema=None, **kw):
@@ -816,7 +849,7 @@ class SQLAnyDialect(default.DefaultDialect):
         if isinstance(view_name, str):
             view_name = view_name.encode("ascii")
         # end Py2K
-        view = connection.execute(VIEW_DEF_SQL, view_name=view_name)
+        view = connection.execute(VIEW_DEF_SQL, {'view_name': view_name})
 
         return view.scalar()
 
@@ -836,9 +869,9 @@ class SQLAnyDialect(default.DefaultDialect):
         if isinstance(schema, str):
             schema = schema.encode("ascii")
         # end Py2K
-        views = connection.execute(VIEW_SQL, schema_name=schema)
+        views = connection.execute(VIEW_SQL, {'schema_name': schema})
 
-        return [v["name"] for v in views]
+        return [v.name for v in views]
 
     def has_table(self, connection, table_name, schema=None):
         try:
