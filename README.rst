@@ -2,6 +2,15 @@
 .. Copyright (c) 2013 SAP AG or an SAP affiliate company. All rights reserved.
 .. ***************************************************************************
 
+
+CHANGES to official sqlalchemy-sqlany
+=====================================
+Make it compatible with sqlalchemy 2.0
+* bind params using dictionary instead of kwrgs
+* access columns as property not as list-element
+
+
+
 sqlalchemy-sqlany
 =================
 This project provides a SQLAlchemy dialect for communicating with a SQL Anywhere
